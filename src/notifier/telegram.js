@@ -2,7 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const config = require('../config');
 const logger = require('../core/logger');
 const eventEmitter = require('../core/eventEmitter');
-
+ 
 class TelegramNotifier {
     constructor() {
         if (!config.telegram.token) {
