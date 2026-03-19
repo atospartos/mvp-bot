@@ -3,7 +3,7 @@ require('dotenv').config();
 module.exports = {
     // Общие настройки
     env: process.env.NODE_ENV || 'development',
-    checkInterval: 0.1, // минут
+    checkInterval: 0.4, // минут
     
     // Telegram
     telegram: {

@@ -1,115 +1,149 @@
 const client = require('./client');
 const logger = require('../core/logger');
+const eventEmitter = require('../core/eventEmitter');  // ВАЖНО: проверьте этот импорт!
 
 class DexFetcher {
     /**
-     * ТОЧНЫЙ ПОИСК по АДРЕСУ (как в Тесте 1)
-     * Использует search?q=address для наиболее точных результатов
+     * Получение данных для токена с анализом топовых пулов
      */
-    async fetchPoolsByToken(tokenAddress) {
+    async fetchTokenData(symbol, chainId, tokenAddress) {
+    try {
+        logger.debug(`🔍 DEX анализ для ${symbol} на ${chainId} с адресом ${tokenAddress}`);
+        
+        const allPools = await this.searchByExactAddress(tokenAddress);
+        
+        if (!allPools || allPools.length === 0) {
+            logger.warn(`⚠️ Нет пулов для ${symbol} на ${chainId} по адресу ${tokenAddress}`);
+            return null;
+        }
+        
+        logger.info(`✅ Найдено ${allPools.length} пулов для ${symbol} на ${chainId}`);
+        
+        const bestPools = this._getBestLiquidityPools(allPools, 3);
+        
+        if (bestPools.length === 0) {
+            logger.warn(`⚠️ Нет пулов с ликвидностью для ${symbol}`);
+            return null;
+        }
+        
+        logger.info(`🏆 Топ-3 пула для ${symbol}:`, bestPools.map(p => 
+            `${p.dexId} ${p.baseToken}/${p.quoteToken} ($${p.liquidityUsd})`
+        ));
+        
+        // ОТПРАВЛЯЕМ ТОЛЬКО ОДИН РАЗ - лучший пул
+        const bestPool = bestPools[0];
+        
+        logger.info(`📤 ОТПРАВКА СОБЫТИЯ dex:poolData для ${symbol} (лучший пул ${bestPool.dexId}/${bestPool.quoteToken})`);
+        
+        eventEmitter.emit('dex:poolData', {
+            symbol,
+            chain: chainId,
+            price: bestPool.priceUsd,
+            pool: {
+                ...bestPool,
+                liquidityRank: 1,
+                totalPools: allPools.length,
+                allPoolsCount: allPools.length
+            },
+            tokenAddress
+        });
+        
+        // Дополнительные пулы можно логировать, но не отправлять как события
+        if (bestPools.length > 1) {
+            logger.debug(`📊 Дополнительные пулы для ${symbol}:`, 
+                bestPools.slice(1).map(p => `${p.dexId} ${p.baseToken}/${p.quoteToken} ($${p.liquidityUsd})`)
+            );
+        }
+        
+        return bestPools;
+        
+    } catch (error) {
+        logger.error(`❌ Ошибка DEX для ${symbol}:`, { error: error.message, stack: error.stack });
+        throw error;
+    }
+}
+    /**
+     * Выбор лучших пулов по ликвидности
+     */
+    _getBestLiquidityPools(pools, limit = 3) {
+        if (!pools || pools.length === 0) return [];
+        
+        const poolsWithLiquidity = pools.filter(p => p.liquidityUsd > 100);
+        
+        if (poolsWithLiquidity.length === 0) {
+            logger.warn(`⚠️ Все пулы имеют нулевую ликвидность`);
+            return [];
+        }
+        
+        return poolsWithLiquidity
+            .sort((a, b) => b.liquidityUsd - a.liquidityUsd)
+            .slice(0, limit);
+    }
+
+    /**
+     * Точный поиск по адресу
+     */
+    async searchByExactAddress(tokenAddress) {
         try {
             logger.debug(`🔍 Точный поиск по адресу: ${tokenAddress}`);
             
-            // Используем search с адресом (Тест 1)
-            const endpoint = `/latest/dex/search?q=${tokenAddress}`;
-            const data = await client.get(endpoint);
-            
-            if (!data || !data.pairs || data.pairs.length === 0) {
-                logger.debug(`❌ Пулов не найдено для адреса ${tokenAddress}`);
-                return [];
-            }
-
-            logger.info(`✅ Найдено ${data.pairs.length} пулов по адресу ${tokenAddress}`);
-            
-            // Фильтруем только USDT пары (как в тесте)
-            const usdtPairs = data.pairs.filter(pair => 
-                pair.quoteToken?.symbol?.toUpperCase() === 'USDT' || 'USDC'
+            const axios = require('axios');
+            const response = await axios.get(
+                `https://api.dexscreener.com/latest/dex/search?q=${tokenAddress}`,
+                { timeout: 5000 }
             );
             
-            logger.info(`📊 Из них USD пулов: ${usdtPairs.length}`);
+            if (response.data && response.data.pairs) {
+                logger.debug(`✅ Найдено ${response.data.pairs.length} пулов по адресу ${tokenAddress}`);
+                return this._normalizePools(response.data.pairs);
+            }
             
-            return this._normalizePools(usdtPairs);
+            return [];
             
         } catch (error) {
-            logger.error(`Ошибка точного поиска по адресу ${tokenAddress}:`, { error: error.message });
+            logger.error(`Ошибка поиска по адресу ${tokenAddress}:`, { error: error.message });
             return [];
         }
     }
 
     /**
-     * Получение данных для всех отслеживаемых токенов
-     * Использует точный поиск по адресу как основной метод
-     */
-    async fetchAllTrackedTokens(tokens) {
-        const results = [];
-        
-        for (const token of tokens) {
-            for (const [chainId, tokenAddress] of Object.entries(token.dex)) {
-                logger.info(`🔎 Ищем пулы для ${token.symbol} на ${chainId} по адресу ${tokenAddress}`);
-                
-                // Используем ТОЧНЫЙ поиск по адресу (Тест 1)
-                const pools = await this.fetchPoolsByToken(tokenAddress);
-                
-                if (pools.length > 0) {
-                    results.push({
-                        symbol: token.symbol,
-                        chainId: chainId,
-                        tokenAddress: tokenAddress,
-                        pools: pools,
-                        stats: {
-                            totalLiquidity: pools.reduce((sum, p) => sum + p.liquidityUsd, 0),
-                            totalVolume: pools.reduce((sum, p) => sum + p.volume24h, 0),
-                            bestPool: pools.sort((a, b) => b.liquidityUsd - a.liquidityUsd)[0]
-                        }
-                    });
-                    
-                    logger.info(`✅ ${token.symbol} на ${chainId}: ${pools.length} USD пулов`, {
-                        totalLiquidity: `$${results[results.length-1].stats.totalLiquidity.toFixed(0)}`,
-                        bestDex: results[results.length-1].stats.bestPool.dexId
-                    });
-                } else {
-                    logger.warn(`⚠️ ${token.symbol} на ${chainId}: нет USD пулов`);
-                }
-            }
-        }
-        
-        return results;
-    }
-
-    /**
-     * Нормализация данных пула
+     * Нормализация пулов
      */
     _normalizePools(pools) {
         if (!Array.isArray(pools)) return [];
         
-        return pools.map(pool => ({
-            pairAddress: pool.pairAddress,
-            dexId: pool.dexId,
-            chainId: pool.chainId,
-            url: pool.url,
-            baseToken: {
-                address: pool.baseToken?.address,
-                name: pool.baseToken?.name,
-                symbol: pool.baseToken?.symbol
-            },
-            quoteToken: {
-                address: pool.quoteToken?.address,
-                name: pool.quoteToken?.name,
-                symbol: pool.quoteToken?.symbol
-            },
-            priceUsd: parseFloat(pool.priceUsd) || 0,
-            liquidityUsd: pool.liquidity?.usd || 0,
-            volume24h: pool.volume?.h24 || 0,
-            priceChange24h: pool.priceChange?.h24 || 0,
-            txns24h: {
-                buys: pool.txns?.h24?.buys || 0,
-                sells: pool.txns?.h24?.sells || 0,
-                total: (pool.txns?.h24?.buys || 0) + (pool.txns?.h24?.sells || 0)
-            },
-            pairCreatedAt: pool.pairCreatedAt 
-                ? new Date(pool.pairCreatedAt * 1000).toISOString() 
-                : null
-        }));
+        return pools.map(pool => {
+            // Парсим цену с учетом научной нотации
+            let priceUsd = 0;
+            if (pool.priceUsd !== undefined && pool.priceUsd !== null) {
+                if (typeof pool.priceUsd === 'string') {
+                    priceUsd = parseFloat(pool.priceUsd);
+                } else {
+                    priceUsd = parseFloat(pool.priceUsd) || 0;
+                }
+            }
+            
+            return {
+                pairAddress: pool.pairAddress,
+                dexId: pool.dexId,
+                chainId: pool.chainId,
+                url: pool.url,
+                baseToken: pool.baseToken?.symbol,
+                quoteToken: pool.quoteToken?.symbol,
+                priceUsd: priceUsd,
+                liquidityUsd: pool.liquidity?.usd || 0,
+                volume24h: pool.volume?.h24 || 0,
+                priceChange24h: pool.priceChange?.h24 || 0,
+                txns24h: {
+                    buys: pool.txns?.h24?.buys || 0,
+                    sells: pool.txns?.h24?.sells || 0,
+                    total: (pool.txns?.h24?.buys || 0) + (pool.txns?.h24?.sells || 0)
+                },
+                pairCreatedAt: pool.pairCreatedAt 
+                    ? new Date(pool.pairCreatedAt * 1000).toISOString() 
+                    : null
+            };
+        });
     }
 }
 

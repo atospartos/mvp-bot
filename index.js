@@ -1,7 +1,7 @@
 require('dotenv').config();
+const logger = require('./src/core/logger');
 
 const orchestrator = require('./src/core/orchestrator');
-const logger = require('./src/core/logger');
 
 // Обработка сигналов остановки
 process.on('SIGINT', () => {

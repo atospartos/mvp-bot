@@ -1,11 +1,10 @@
-# MVP Trading Bot
+# MVP
 
-Arbitrage bot monitoring DEX (PancakeSwap) and CEX (MEXC, Gate.io) price differences.
+Monitoring DEX and CEX (MEXC, Gate.io) price differences.
 
 ## Features
 - Real-time DEX/CEX price monitoring
 - Automatic spread analysis
-- Funding rate tracking
 - Telegram notifications
 - Statistical analysis of price differences
 

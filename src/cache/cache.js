@@ -1,25 +1,44 @@
+const logger = require('../core/logger');
+
 class DataCache {
     constructor() {
         this.dexPrices = {};      // symbol -> { chain -> price }
+        this.bestDexPrice = {};   // symbol -> лучшая цена по ликвидности
         this.cexPrices = {};      // symbol -> { exchange -> price }
         this.pools = {};          // symbol -> { chain -> pools[] }
         this.cexStats = {};       // symbol -> { exchange -> stats }
         this.orderBooks = {};     // symbol -> { exchange -> orderbook }
     }
 
-    updateDexPrice(symbol, chain, price, poolData) {
-        if (poolData.quoteToken?.symbol !== 'USDT') return;
-        if (!this.dexPrices[symbol]) this.dexPrices[symbol] = {};
-        this.dexPrices[symbol][chain] = {
-            price,
-            timestamp: Date.now(),
-            pool: poolData
-        };
-
-        // Сохраняем статистику
-        if (!this.pools[symbol]) this.pools[symbol] = {};
-        this.pools[symbol][chain] = poolData;
+updateDexPrice(symbol, chain, price, poolData) {
+    logger.debug(`💰 Сохраняем DEX цену для ${symbol}: $${price}, ликв. $${poolData?.liquidityUsd}`);
+    
+    if (!this.dexPrices[symbol]) {
+        this.dexPrices[symbol] = [];
     }
+    
+    // Убедимся, что liquidity сохраняется
+    const liquidity = poolData?.liquidityUsd || 0;
+    
+    this.dexPrices[symbol].push({
+        price: parseFloat(price),
+        chain,
+        liquidity: liquidity,
+        volume: poolData?.volume24h || 0,
+        pair: `${poolData?.baseToken}/${poolData?.quoteToken}`,
+        dex: poolData?.dexId,
+        timestamp: Date.now()
+    });
+    
+    // Сортируем по ликвидности
+    this.dexPrices[symbol].sort((a, b) => b.liquidity - a.liquidity);
+    
+    // Обновляем bestDexPrice
+    if (this.dexPrices[symbol].length > 0) {
+        this.bestDexPrice[symbol] = this.dexPrices[symbol][0];
+        logger.info(`✅ ${symbol} best DEX: ${this.bestDexPrice[symbol].pair} ликв. $${this.bestDexPrice[symbol].liquidity}`);
+    }
+}
 
     updateCexPrice(symbol, exchange, price, volume, bid, ask) {
         if (!this.cexPrices[symbol]) this.cexPrices[symbol] = {};
@@ -52,17 +71,25 @@ class DataCache {
     }
 
     getBestDexPrice(symbol) {
-        const chains = this.dexPrices[symbol];
-        if (!chains) return null;
-
-        let best = { price: 0, chain: null, data: null };
-        for (const [chain, data] of Object.entries(chains)) {
-            if (data.price > best.price) {
-                best = { price: data.price, chain, data };
-            }
-        }
-        return best.price > 0 ? best : null;
+    const best = this.bestDexPrice[symbol];
+    if (!best) {
+        logger.debug(`ℹ️ Нет best DEX price для ${symbol}`);
+        return null;
     }
+    
+    logger.debug(`📊 getBestDexPrice для ${symbol}: цена $${best.price}, ликв. $${best.liquidity}`);
+    
+    return {
+        price: best.price,
+        chain: best.chain,
+        data: {
+            pool: best,
+            liquidity: best.liquidity,
+            volume: best.volume,
+            pair: best.pair
+        }
+    };
+}
 
     getBestCexPrice(symbol) {
         const exchanges = this.cexPrices[symbol];

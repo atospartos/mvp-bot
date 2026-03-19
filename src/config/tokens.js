@@ -16,15 +16,28 @@ module.exports = [
     //         gateio: 'USDC/USDT'
     //     }
     // },
+
     {
-        symbol: 'GF',
+        symbol: 'PIPPIN',
         dex: {
-            bsc: '0x6Db461da03b8Ad06319fF2aF985E1C8dFcC004e0'
+            solana: 'Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump'
         },
         cex: {
-            mexc: 'GF/USDT',
-            gateio: 'GF/USDT'
+            mexc: 'PIPPIN/USDT',
+            gateio: 'PIPPIN/USDT'
+        }
+    },
+
+    {
+        symbol: 'USELESS',
+        dex: {
+            solana: 'Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk'
+        },
+        cex: {
+            mexc: 'USELESS/USDT',
+            gateio: 'USELESS/USDT'
         }
     }
+    
 
 ];
