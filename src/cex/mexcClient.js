@@ -11,7 +11,7 @@ class MexcClient {
         try {
             this.exchange = new ccxt.mexc({
                 enableRateLimit: true,
-                timeout: 15000,
+                timeout: 10000,
                 options: { defaultType: 'spot' }
             });
             logger.info('MEXC клиент инициализирован');
@@ -23,6 +23,7 @@ class MexcClient {
     async getTicker(symbol) {
         if (!this.exchange) return null;
         try {
+            // await this._checkRateLimit();
             const ticker = await this.exchange.fetchTicker(symbol);
             return {
                 exchange: 'mexc',
@@ -42,12 +43,32 @@ class MexcClient {
     async getOrderBook(symbol, limit = 100) {
         if (!this.exchange) return null;
         try {
+            // await this._checkRateLimit();
             return await this.exchange.fetchOrderBook(symbol, limit);
         } catch (error) {
             //logger.error(`MEXC orderbook error for ${symbol}:`, error.message);
             return null;
         }
     }
+    
+        // async _checkRateLimit() {
+        //     // Простой rate limiter - 20 запросов в секунду
+        //     const now = Date.now();
+        //     if (now - this.lastReset > 1000) {
+        //         this.requestCount = 0;
+        //         this.lastReset = now;
+        //     }
+            
+        //     if (this.requestCount >= 18) { // Оставляем запас
+        //         const waitTime = 1000 - (now - this.lastReset);
+        //         logger.warn(`Rate limit approaching, waiting ${waitTime}ms`);
+        //         await new Promise(resolve => setTimeout(resolve, waitTime));
+        //         this.requestCount = 0;
+        //         this.lastReset = Date.now();
+        //     }
+            
+        //     this.requestCount++;
+        // }
 }
 
 module.exports = new MexcClient();

@@ -21,7 +21,7 @@ class DexClient {
     async get(endpoint) {
         try {
             // Простой rate limiting
-            await this._checkRateLimit();
+            // await this._checkRateLimit();
             
             const response = await this.client.get(endpoint);
             return response.data;
@@ -43,24 +43,24 @@ class DexClient {
         }
     }
 
-    async _checkRateLimit() {
-        // Простой rate limiter - 300 запросов в минуту
-        const now = Date.now();
-        if (now - this.lastReset > 60000) {
-            this.requestCount = 0;
-            this.lastReset = now;
-        }
+    // async _checkRateLimit() {
+    //     // Простой rate limiter - 300 запросов в минуту
+    //     const now = Date.now();
+    //     if (now - this.lastReset > 60000) {
+    //         this.requestCount = 0;
+    //         this.lastReset = now;
+    //     }
         
-        if (this.requestCount >= 280) { // Оставляем запас
-            const waitTime = 60000 - (now - this.lastReset);
-            logger.warn(`Rate limit approaching, waiting ${waitTime}ms`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            this.requestCount = 0;
-            this.lastReset = Date.now();
-        }
+    //     if (this.requestCount >= 280) { // Оставляем запас
+    //         const waitTime = 60000 - (now - this.lastReset);
+    //         logger.warn(`Rate limit approaching, waiting ${waitTime}ms`);
+    //         await new Promise(resolve => setTimeout(resolve, waitTime));
+    //         this.requestCount = 0;
+    //         this.lastReset = Date.now();
+    //     }
         
-        this.requestCount++;
-    }
+    //     this.requestCount++;
+    // }
 }
 
 module.exports = new DexClient();

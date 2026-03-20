@@ -1,4 +1,7 @@
+// const config = require('../config');
 const logger = require('./logger');
+// const eventEmitter = require('./eventEmitter');
+
 // Модули
 const dexMonitor = require('../dex/monitor');
 const cexMonitor = require('../cex/monitor');
@@ -9,26 +12,22 @@ class Orchestrator {
     constructor() {
         this.isRunning = false;
         this.tokens = require('../config/tokens');
-        this.currentTokenIndex = 0;
         
+        // Настройки
         this.config = {
-            cycleInterval: 3000,         // 3 секунды между циклами
-            minCycleDuration: 2000,
-            maxCycleDuration: 45000
+            delayBetweenTokens: 250,      // 250ms между запуском токенов
+            cycleInterval: 5000,          // 5 секунд между циклами
+            timeouts: {
+                dex: 2000,
+                cex: 2000,
+            }
         };
         
         this.stats = {
             cyclesCompleted: 0,
             tokensProcessed: 0,
             startTime: null,
-            errors: {},
-            cycleTimes: []
-        };
-        
-        this.timeouts = {
-            dex: 2000,
-            mexc: 2000,
-            gateio: 2000
+            cycleStartTime: null
         };
     }
 
@@ -38,7 +37,8 @@ class Orchestrator {
             return;
         }
 
-        logger.info('🚀 Запуск Trading Bot MVP (чистая версия)');
+        logger.info('🚀 Запуск Trading Bot MVP (последовательный запуск токенов с паузой 250ms)');
+        logger.info(`📊 Настройки: задержка между токенами ${this.config.delayBetweenTokens}ms, интервал между циклами ${this.config.cycleInterval/1000}с`);
         
         if (telegram && telegram.sendStartupMessage) {
             telegram.sendStartupMessage();
@@ -47,107 +47,151 @@ class Orchestrator {
         this.isRunning = true;
         this.stats.startTime = Date.now();
 
-        await this.runCycle();
+        // Запускаем бесконечные циклы
+        this.runCycles();
 
-        logger.info(`✅ Оркестратор запущен, интервал между циклами: ${this.config.cycleInterval/1000}с`);
+        logger.info(`✅ Оркестратор запущен, токенов в списке: ${this.tokens.length}`);
     }
 
-    async runCycle() {
-        const cycleStartTime = Date.now();
+    async runCycles() {
+        while (this.isRunning) {
+            await this.runSingleCycle();
+            
+            if (this.isRunning) {
+                logger.info(`⏳ Ожидание ${this.config.cycleInterval/1000}с до следующего цикла...`);
+                await this.delay(this.config.cycleInterval);
+            }
+        }
+    }
+
+    async runSingleCycle() {
+        this.stats.cycleStartTime = Date.now();
         
         logger.info(`\n🔄 === НАЧАЛО ЦИКЛА ${this.stats.cyclesCompleted + 1} ===`);
+        logger.info(`📊 Запускаем ${this.tokens.length} токенов с интервалом ${this.config.delayBetweenTokens}ms...`);
         
-        // Обрабатываем все токены
-        while (this.currentTokenIndex < this.tokens.length && this.isRunning) {
-            const token = this.tokens[this.currentTokenIndex];
+        // Создаем промисы для всех токенов с задержкой между запусками
+        const tokenPromises = [];
+        
+        for (let i = 0; i < this.tokens.length; i++) {
+            const token = this.tokens[i];
             
-            logger.info(`\n📊 [${this.currentTokenIndex + 1}/${this.tokens.length}] Обработка ${token.symbol}...`);
-            
-            const tokenStartTime = Date.now();
-            
-            try {
-                const data = await this.getTokenDataWithTimeout(token);
-                
-                if (data && data.dex && data.cex.length > 0) {
-                    await this.analyzeTokenData(token.symbol, data.dex, data.cex);
-                } else {
-                    logger.info(`⏩ ${token.symbol}: недостаточно данных (DEX: ${!!data?.dex}, CEX: ${data?.cex?.length || 0})`);
-                }
-                
-                const duration = Date.now() - tokenStartTime;
-                this.stats.tokensProcessed++;
-                logger.info(`✅ ${token.symbol} обработан за ${duration}ms`);
-
-            } catch (error) {
-                logger.error(`❌ Ошибка обработки ${token.symbol}:`, { error: error.message });
-                
-                if (!this.stats.errors[token.symbol]) {
-                    this.stats.errors[token.symbol] = 0;
-                }
-                this.stats.errors[token.symbol]++;
+            // Задержка перед запуском каждого токена (кроме первого)
+            if (i > 0) {
+                await this.delay(this.config.delayBetweenTokens);
             }
             
-            this.currentTokenIndex++;
-        }
-
-        // Цикл завершен
-        const cycleDuration = Date.now() - cycleStartTime;
-        this.stats.cycleTimes.push(cycleDuration);
-        this.stats.cyclesCompleted++;
-        
-        logger.info(`\n✅ === ЦИКЛ ${this.stats.cyclesCompleted} ЗАВЕРШЕН за ${cycleDuration}ms ===`);
-        this.logCycleStats();
-        
-        await this.scheduleNextCycle();
-    }
-
-    async getTokenDataWithTimeout(token) {
-        const [dexChain, dexAddress] = Object.entries(token.dex || {})[0] || [];
-        
-        const dexPromise = dexChain && dexAddress ? 
-            this.createPromiseWithTimeout(
-                dexMonitor.fetchTokenData(token.symbol, dexChain, dexAddress),
-                this.timeouts.dex,
-                `DEX ${token.symbol}`
-            ) : Promise.resolve(null);
-        
-        const cexPromises = [];
-        for (const [exchange, symbol] of Object.entries(token.cex || {})) {
-            const timeout = exchange === 'mexc' ? this.timeouts.mexc : this.timeouts.gateio;
+            // Запускаем обработку токена
+            const promise = this.processToken(token).catch(error => {
+                logger.error(`❌ [${token.symbol}] Ошибка: ${error.message}`);
+                return null;
+            });
             
-            cexPromises.push(
-                this.createPromiseWithTimeout(
-                    cexMonitor.fetchPrice(token.symbol, exchange, symbol),
-                    timeout,
-                    `${exchange} ${token.symbol}`
-                ).catch(error => {
-                    logger.debug(`${exchange} ошибка для ${token.symbol}: ${error.message}`);
-                    return null;
-                })
-            );
+            tokenPromises.push(promise);
         }
         
-        const [dexResult, ...cexResults] = await Promise.all([
-            dexPromise.catch(() => null),
-            ...cexPromises
-        ]);
+        // Ждем завершения всех токенов
+        const results = await Promise.allSettled(tokenPromises);
         
-        const dexData = dexResult?.[0] || null;
-        const cexData = cexResults.filter(r => r !== null);
+        // Подсчитываем успешные
+        let successCount = 0;
+        for (const result of results) {
+            if (result.status === 'fulfilled' && result.value) {
+                successCount++;
+            }
+        }
         
-        return { dex: dexData, cex: cexData };
+        const cycleDuration = Date.now() - this.stats.cycleStartTime;
+        this.stats.cyclesCompleted++;
+        this.stats.tokensProcessed += successCount;
+        
+        logger.info(`\n✅ === ЦИКЛ ${this.stats.cyclesCompleted} ЗАВЕРШЕН ===`);
+        logger.info(`📊 Успешно: ${successCount}/${this.tokens.length} токенов`);
+        logger.info(`⏱️  Длительность: ${cycleDuration}ms (${(cycleDuration/1000).toFixed(1)}с)`);
+        this.logStats();
     }
 
-    createPromiseWithTimeout(promise, timeoutMs, name) {
-        return Promise.race([
-            promise,
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error(`${name} timeout`)), timeoutMs)
-            )
-        ]);
+    async processToken(token) {
+        const tokenStartTime = Date.now();
+        
+        logger.info(`📊 [${token.symbol}] Запуск...`);
+        
+        try {
+            // Получаем DEX данные
+            const dexPromise = this.getDexData(token);
+            
+            // Получаем CEX данные с разных бирж (все параллельно)
+            const cexPromises = [];
+            
+            if (token.cex?.mexc) {
+                cexPromises.push(this.getCexData(token, 'mexc'));
+            }
+            if (token.cex?.gateio) {
+                cexPromises.push(this.getCexData(token, 'gateio'));
+            }
+            if (token.cex?.binance) {
+                cexPromises.push(this.getCexData(token, 'binance'));
+            }
+            
+            // Ждем все запросы параллельно
+            const [dexResult, ...cexResults] = await Promise.allSettled([
+                dexPromise,
+                ...cexPromises
+            ]);
+            
+            const dexData = dexResult.status === 'fulfilled' ? dexResult.value : null;
+            const cexData = cexResults
+                .filter(r => r.status === 'fulfilled' && r.value)
+                .map(r => r.value);
+            
+            // Анализируем если есть данные
+            if (dexData && cexData.length > 0) {
+                this.analyzeTokenData(token.symbol, dexData, cexData);
+                
+                const duration = Date.now() - tokenStartTime;
+                logger.info(`✅ [${token.symbol}] Обработан за ${duration}ms`);
+                return true;
+            } else {
+                logger.info(`⏩ [${token.symbol}] Недостаточно данных (DEX: ${!!dexData}, CEX: ${cexData.length})`);
+                return false;
+            }
+            
+        } catch (error) {
+            logger.error(`❌ [${token.symbol}] Ошибка: ${error.message}`);
+            throw error;
+        }
     }
 
-    async analyzeTokenData(symbol, dexData, cexData) {
+    async getDexData(token) {
+        const [dexChain, dexAddress] = Object.entries(token.dex || {})[0] || [];
+        if (!dexChain || !dexAddress) return null;
+        
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`DEX timeout after ${this.config.timeouts.dex}ms`)), this.config.timeouts.dex)
+        );
+        
+        const dexPromise = dexMonitor.fetchTokenData(token.symbol, dexChain, dexAddress);
+        
+        const data = await Promise.race([dexPromise, timeoutPromise]);
+        return data?.[0] || null;
+    }
+
+    async getCexData(token, exchange) {
+        const symbol = token.cex?.[exchange];
+        if (!symbol) return null;
+        
+        const timeout = this.config.timeouts.cex;
+        
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`${exchange} timeout after ${timeout}ms`)), timeout)
+        );
+        
+        const cexPromise = cexMonitor.fetchPrice(token.symbol, exchange, symbol);
+        
+        return await Promise.race([cexPromise, timeoutPromise]);
+    }
+
+    analyzeTokenData(symbol, dexData, cexData) {
         try {
             cache.updateDexPrice(symbol, dexData.chainId, dexData.priceUsd, dexData);
             
@@ -158,81 +202,66 @@ class Orchestrator {
                 
                 const diffPercent = ((dexData.priceUsd - cex.price) / cex.price) * 100;
                 const absDiff = Math.abs(diffPercent);
-                const netProfit = absDiff - 0.4;
+                const netProfit = absDiff - 0.4; // минус комиссии 0.4%
                 
                 divergences.push({
+                    dexPrice: dexData.priceUsd,
+                    cexPrice: cex.price,
                     exchange: cex.exchange,
                     diffPercent,
+                    absDiff,
                     netProfit
                 });
             }
             
-            divergences.sort((a, b) => Math.abs(b.diffPercent) - Math.abs(a.diffPercent));
+            // Сортируем по абсолютной разнице
+            divergences.sort((a, b) => b.absDiff - a.absDiff);
             
+            // Формируем строку вывода
             const divergenceStrings = divergences
                 .map(d => {
                     const emoji = d.diffPercent > 0 ? '📈' : '📉';
                     const profitEmoji = d.netProfit > 0 ? '🟢' : '🔴';
-                    return `${d.exchange}: ${emoji} ${d.diffPercent > 0 ? '+' : ''}${d.diffPercent.toFixed(2)}% (${profitEmoji} net ${d.netProfit > 0 ? '+' : ''}${d.netProfit.toFixed(2)}%)`;
+                    const profitStr = d.netProfit > 0 ? `+${d.netProfit.toFixed(2)}` : d.netProfit.toFixed(2);
+                    return `dex: ${d.dexPrice}, cex: ${d.cexPrice}, ${d.exchange}: ${emoji} ${d.diffPercent > 0 ? '+' : ''}${d.diffPercent.toFixed(2)}% (${profitEmoji} net ${profitStr}%)`;
                 })
                 .join(' | ');
             
             logger.info(`💹 ${symbol}: ${divergenceStrings}`);
             
-            const significantSignals = divergences.filter(d => Math.abs(d.diffPercent) >= 1.5);
+            // Если есть сигнал >1.5%, дополнительно логируем
+            const significantSignals = divergences.filter(d => d.absDiff >= 1.5);
             if (significantSignals.length > 0) {
-                logger.signal(`🔥 СИГНАЛ ${symbol}:`, significantSignals);
+                logger.signal(`🔥 СИГНАЛ ${symbol}:`, significantSignals.map(s => ({
+                    exchange: s.exchange,
+                    diffPercent: s.diffPercent.toFixed(2) + '%',
+                    netProfit: s.netProfit.toFixed(2) + '%'
+                })));
             }
-            
-            // Убираем вызов comparator.analyzeSymbol, так как он дублирует логи
-            // Весь анализ уже сделан выше
             
         } catch (error) {
             logger.error(`❌ Ошибка анализа ${symbol}:`, { error: error.message });
         }
     }
 
-    async scheduleNextCycle() {
-        if (!this.isRunning) return;
-        
-        this.currentTokenIndex = 0;
-        
-        const waitTime = this.config.cycleInterval;
-        
-        logger.info(`\n⏳ Ожидание ${waitTime/1000}с до следующего цикла (в ${new Date(Date.now() + waitTime).toLocaleTimeString()})`);
-        
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-        
-        if (this.isRunning) {
-            logger.info(`\n🔄 СТАРТ НОВОГО ЦИКЛА...`);
-            await this.runCycle();
-        }
-    }
-
-    logCycleStats() {
+    logStats() {
         const now = Date.now();
         const uptime = ((now - this.stats.startTime) / 1000 / 60).toFixed(1);
-        const errorCount = Object.values(this.stats.errors).reduce((a, b) => a + b, 0);
-        
-        const avgCycleTime = this.stats.cycleTimes.length > 0 
-            ? Math.round(this.stats.cycleTimes.reduce((a, b) => a + b, 0) / this.stats.cycleTimes.length)
-            : 0;
         
         logger.info(`\n📊 === СТАТИСТИКА ===`);
         logger.info(`⏱️  Uptime: ${uptime} минут`);
         logger.info(`🔄 Циклов выполнено: ${this.stats.cyclesCompleted}`);
         logger.info(`📈 Токенов обработано: ${this.stats.tokensProcessed}`);
-        logger.info(`⏱️  Среднее время цикла: ${avgCycleTime}ms`);
-        if (errorCount > 0) {
-            logger.info(`❌ Ошибок: ${errorCount}`);
-        }
-        logger.info(`⏳ Интервал между циклами: ${this.config.cycleInterval/1000}с`);
         logger.info(`========================\n`);
+    }
+
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     stop() {
         this.isRunning = false;
-        this.logCycleStats();
+        this.logStats();
         logger.info('🛑 Оркестратор остановлен');
     }
 }

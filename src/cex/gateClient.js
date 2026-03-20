@@ -8,6 +8,9 @@ class GateClient {
 
     async getTicker(symbol) {
         try {
+            // Простой rate limiting
+            // await this._checkRateLimit();
+            
             const gateSymbol = symbol.replace('/', '_');
             const response = await axios.get(
                 `${this.baseUrl}/spot/tickers`,
@@ -35,6 +38,7 @@ class GateClient {
 
     async getOrderBook(symbol, limit = 100) {
         try {
+            // await this._checkRateLimit();
             const gateSymbol = symbol.replace('/', '_');
             const response = await axios.get(
                 `${this.baseUrl}/spot/order_book`,
@@ -46,6 +50,25 @@ class GateClient {
             return null;
         }
     }
+
+    // async _checkRateLimit() {
+    //     // Простой rate limiter - 20 запросов в секунду
+    //     const now = Date.now();
+    //     if (now - this.lastReset > 1000) {
+    //         this.requestCount = 0;
+    //         this.lastReset = now;
+    //     }
+        
+    //     if (this.requestCount >= 18) { // Оставляем запас
+    //         const waitTime = 1000 - (now - this.lastReset);
+    //         logger.warn(`Rate limit approaching, waiting ${waitTime}ms`);
+    //         await new Promise(resolve => setTimeout(resolve, waitTime));
+    //         this.requestCount = 0;
+    //         this.lastReset = Date.now();
+    //     }
+        
+    //     this.requestCount++;
+    // }
 }
 
 module.exports = new GateClient();

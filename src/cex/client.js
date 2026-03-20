@@ -1,12 +1,14 @@
 const mexcClient = require('./mexcClient');
 const gateClient = require('./gateClient');
+const binanceClient = require('./binanceClient');
 const logger = require('../core/logger');
 
 class CexClient {
     constructor() {
         this.clients = {
             mexc: mexcClient,
-            gateio: gateClient
+            gateio: gateClient,
+            binance: binanceClient
         };
     }
 
