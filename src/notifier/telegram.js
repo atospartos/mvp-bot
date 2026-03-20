@@ -2,110 +2,84 @@ const TelegramBot = require('node-telegram-bot-api');
 const config = require('../config');
 const logger = require('../core/logger');
 const eventEmitter = require('../core/eventEmitter');
- 
+
 class TelegramNotifier {
     constructor() {
-        if (!config.telegram.token) {
+        if (!config.telegram?.token) {
             logger.warn('Telegram токен не указан, уведомления отключены');
             return;
         }
-
+        
         this.bot = new TelegramBot(config.telegram.token, { polling: false });
         this.chatId = config.telegram.chatId;
-
+        
         // Подписываемся на события
-        eventEmitter.on('signal:priceDiff', this.sendSignal.bind(this));
-        eventEmitter.on('dex:significantChanges', this.sendChanges.bind(this));
-        eventEmitter.on('analysis:poolSummary', this.sendSummary.bind(this));
-
+        this.setupEventListeners();
+        
         logger.info('Telegram нотификатор инициализирован');
     }
 
-    sendMessage(message, options = {}) {
-        if (!this.bot || !this.chatId) return;
+    setupEventListeners() {
+        // Обработка отправки сообщений
+        eventEmitter.on('telegram:send', this.sendMessage.bind(this));
+        
+        // Уведомления о запуске/остановке бота (будем вызывать из orchestrator)
+    }
 
-        this.bot.sendMessage(this.chatId, message, {
+    sendMessage(data) {
+        if (!this.bot || !this.chatId) {
+            logger.debug('Telegram не инициализирован, сообщение не отправлено');
+            return;
+        }
+        
+        this.bot.sendMessage(this.chatId, data.message, { 
             parse_mode: 'HTML',
-            ...options
+            disable_web_page_preview: true
         }).catch(err => {
             logger.error('Ошибка отправки Telegram', { error: err.message });
         });
     }
 
-    sendSignal(data) {
-        const emoji = data.diffPercent > 0 ? '📈' : '📉';
-        const message =
-            `${emoji} <b>Сигнал по ${data.symbol}</b>
-
-DEX (${data.dex.chain}): $${data.dex.price.toFixed(6)}
-CEX (${data.cex.exchange}): $${data.cex.price.toFixed(6)}
-Разница: <b>${data.diffPercent.toFixed(2)}%</b>
-
-DEX ликвидность: $${data.dex.data?.pool?.liquidityUsd?.toFixed(0) || 'N/A'}
-CEX объем: $${data.cex.data?.volume?.toFixed(0) || 'N/A'}`;
-
-        this.sendMessage(message);
-    }
-
     sendStartupMessage() {
-        const message =
-            `🤖 <b>Trading Bot MVP запущен</b>
+        const message = 
+`🤖 <b>Trading Bot MVP ЗАПУЩЕН</b>
 
-Отслеживаемые токены: ${require('../config/tokens').map(t => t.symbol).join(', ')}
-Интервал проверки: ${config.checkInterval} мин
-Порог сигнала: ${config.strategy.minPriceDiffPercent}%
+📊 <b>Настройки:</b>
+• Интервал между токенами: 250ms
+• Интервал между циклами: 5с
+• Отслеживаемые токены: ${require('../config/tokens').length}
 
-Бот начал работу!`;
+✅ Бот начал работу и отслеживает арбитражные возможности`;
 
-        this.sendMessage(message);
+        this.sendMessage({ message });
     }
 
-    // Новый метод для отправки изменений
-    sendChanges(data) {
-        const message =
-            `🔄 <b>Изменения по ${data.symbol}</b>
+    sendShutdownMessage() {
+        const message = 
+`🛑 <b>Trading Bot MVP ОСТАНОВЛЕН</b>
 
-${data.changes.map(change => {
-                switch (change.type) {
-                    case 'new_pool':
-                        return `🆕 Новый пул на ${change.pool.dexId}
-   Ликвидность: $${change.pool.liquidityUsd.toFixed(0)}
-   Цена: $${change.pool.priceUsd}`;
-                    case 'price_change':
-                        return `${change.change > 0 ? '📈' : '📉'} Цена ${Math.abs(change.change).toFixed(2)}%
-   ${change.oldPrice} → ${change.newPrice}`;
-                    case 'liquidity_change':
-                        return `${change.change > 0 ? '➕' : '➖'} Ликвидность ${Math.abs(change.change).toFixed(0)}%
-   $${change.oldLiquidity.toFixed(0)} → $${change.newLiquidity.toFixed(0)}`;
-                    case 'high_activity':
-                        return `🔥 Высокая активность
-   Новых транзакций: ${change.newTransactions}
-   Покупок: ${change.buys}, Продаж: ${change.sells}`;
-                    default:
-                        return '';
-                }
-            }).join('\n\n')}`;
+⏰ <b>Время остановки:</b> ${new Date().toLocaleTimeString()}
 
-        this.sendMessage(message);
+Бот завершил работу.`;
+
+        this.sendMessage({ message });
     }
 
-    // Новый метод для сводки по токену
-    sendSummary(data) {
-        const emoji = data.summary.hasEnoughLiquidity ? '✅' : '⚠️';
-        const message =
-            `${emoji} <b>Сводка по ${data.symbol}</b>
+    sendStatusReport(stats) {
+        const uptime = stats.uptime || 'N/A';
+        const cycles = stats.cyclesCompleted || 0;
+        const tokens = stats.tokensProcessed || 0;
+        
+        const message = 
+`📊 <b>СТАТУС БОТА</b>
 
-📊 <b>Пулы:</b> ${data.summary.poolsCount}
-💰 <b>Общая ликвидность:</b> $${data.totalLiquidity.toFixed(0)} (${data.summary.liquidityGrade})
-📈 <b>Объем 24ч:</b> $${data.totalVolume24h.toFixed(0)} (${data.summary.volumeGrade})
-🔄 <b>Транзакций 24ч:</b> ${data.totalTxns24h}
+⏱️ <b>Время работы:</b> ${uptime}
+🔄 <b>Циклов выполнено:</b> ${cycles}
+📈 <b>Токенов обработано:</b> ${tokens}
 
-🏆 <b>Лучший пул:</b>
-   DEX: ${data.bestLiquidityPool?.dexId}
-   Ликвидность: $${data.bestLiquidityPool?.liquidityUsd.toFixed(0)}
-   Статус: ${data.bestLiquidityPool?.metrics.health}`;
+✅ Бот работает стабильно`;
 
-        this.sendMessage(message);
+        this.sendMessage({ message });
     }
 }
 
