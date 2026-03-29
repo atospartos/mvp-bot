@@ -3,7 +3,7 @@ const path = require('path');
 const logger = require('../core/logger');
 const eventEmitter = require('../core/eventEmitter');
 
-class Statistics {
+class Analyzer {
     constructor() {
         this.signals = {
             total: 0,
@@ -27,12 +27,12 @@ class Statistics {
 
         this.config = {
             // Входные условия
-            minSpreadPercent: 1.5,
+            minSpreadPercent: 2,
             feePercent: 0.2,
 
             // Триггеры (от entrySpread)
             takeProfitReduction: 60,     // №2: схлоп 60% → тейк
-            stopLossFalseReduction: 30,  // №3: ложное схлоп 30% → стоп
+            stopLossFalseReduction: 25,  // №3: ложное схлоп 30% → стоп
             stopLossIncrease: 30,        // №4: рост спреда 30% → стоп
             marketMoveThreshold: 1.0,    // №5: движение >1% → стоп
             spreadStableThreshold: 0.5,  // №5: спред изменился <0.5%
@@ -608,4 +608,4 @@ class Statistics {
     }
 }
 
-module.exports = new Statistics();
+module.exports = new Analyzer();

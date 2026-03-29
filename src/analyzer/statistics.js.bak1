@@ -32,7 +32,7 @@ class Statistics {
             feePercent: 0.2,
             
             // Пороги для решений
-            takeProfitProgress: 80,        // 80% движения к цели → тейк
+            takeProfitProgress: 60,        // 60% движения к цели → тейк
             stopLossProgress: 25,          // 25% движения против → стоп
             averageSpreadMultiplier: 2,    // увеличение спреда в 2 раза → усреднение
             marketMoveThreshold: 2.0,      // движение рынка >2% → стоп
@@ -355,7 +355,7 @@ class Statistics {
         
         // ========== ПРИНЯТИЕ РЕШЕНИЙ ==========
         
-        // 1. Истинное схождение → ТЕЙК (80% движения к цели)
+        // 1. Истинное схождение → ТЕЙК (% движения к цели)
         if (progress >= this.config.takeProfitProgress) {
             logger.info(`🎯 ${symbol}: истинное схождение, прогресс ${progress.toFixed(1)}% → ТЕЙК`);
             this.closeSignal(symbol, 'take_profit', cexMove, dexMove);

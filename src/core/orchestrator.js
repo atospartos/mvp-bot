@@ -3,16 +3,16 @@ const logger = require('./logger');
 const eventEmitter = require('./eventEmitter');
 const dexMonitor = require('../dex/monitor');
 const cexMonitor = require('../cex/monitor');
-const statistics = require('../analyzer/statistics');
+const statistics = require('../analyzer/analyzer');
 
 class Orchestrator {
     constructor() {
         this.isRunning = false;
         this.tokens = require('../../data/tokens');
         this.config = {
-            delayBetweenTokens: 250,      // 250ms между запуском токенов
-            cycleInterval: 2000,         // 5 секунд между циклами
-            timeout: 3000                 // 2 секунд таймаут на запрос
+            delayBetweenTokens: 250,     // 250ms между запуском токенов (ratelimiter)
+            cycleInterval: 2000,         // ms между циклами
+            timeout: 3000                // таймаут на запрос
         };
         this.stats = {
             cycles: 0,
