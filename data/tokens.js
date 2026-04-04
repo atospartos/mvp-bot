@@ -17,5 +17,21 @@ module.exports = [
             bsc: "0x1a5f9d77ca46646cd4937fd8d093f460b66f4444"
         },
         cex: "老子/USDT"
+ },
+
+    {
+        symbol: "AZTEC",
+        dex: {
+            ethereum: "0xa27ec0006e59f245217ff08cd52a7e8b169e62d2"
+        },
+        cex: "AZTEC/USDT"
+ },
+
+    {
+        symbol: "龙虾",
+        dex: {
+            bsc: "0xeccbb861c0dda7efd964010085488b69317e4444"
+        },
+        cex: "龙虾/USDT"
  }
 ];

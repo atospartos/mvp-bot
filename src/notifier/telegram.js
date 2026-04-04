@@ -1,18 +1,13 @@
 // src/notifier/telegram.js
 const TelegramBot = require('node-telegram-bot-api');
-const config = require('../config');
 const logger = require('../core/logger');
 const eventEmitter = require('../core/eventEmitter');
 
 class TelegramNotifier {
     constructor() {
-        if (!config.telegram.token) {
-            logger.warn('Telegram не настроен');
-            return;
-        }
         
-        this.bot = new TelegramBot(config.telegram.token, { polling: false });
-        this.chatId = config.telegram.chatId;
+        this.bot = new TelegramBot(process.env.TG_BOT_TOKEN, { polling: false });
+        this.chatId = process.env.TG_CHAT_ID;
         
         eventEmitter.on('signal:new', this.sendSignal.bind(this));
         eventEmitter.on('signal:close', this.sendResult.bind(this));

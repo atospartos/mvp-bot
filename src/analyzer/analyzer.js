@@ -28,11 +28,11 @@ class Analyzer {
         this.config = {
             // Входные условия
             minSpreadPercent: 2,
-            feePercent: 0.2,
+            feePercent: 0.4,
 
             // Триггеры (от entrySpread)
             takeProfitReduction: 60,     // №2: схлоп 60% → тейк
-            stopLossFalseReduction: 25,  // №3: ложное схлоп 30% → стоп
+            stopLossFalseReduction: 30,  // №3: ложное схлоп 30% → стоп
             stopLossIncrease: 30,        // №4: рост спреда 30% → стоп
             marketMoveThreshold: 1.0,    // №5: движение >1% → стоп
             spreadStableThreshold: 0.5,  // №5: спред изменился <0.5%
