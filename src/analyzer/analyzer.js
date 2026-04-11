@@ -27,7 +27,7 @@ class Analyzer {
 
         this.config = {
             // Входные условия
-            minSpreadPercent: 2,
+            minSpreadPercent: 0.8,
             feePercent: 0.4,
 
             // Триггеры (от entrySpread)

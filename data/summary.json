@@ -1,14 +1,14 @@
 {
-  "totalSignals": 0,
-  "activeSignals": 0,
-  "closedSignals": 4,
-  "wins": 4,
-  "losses": 0,
-  "winRate": "100.0%",
-  "totalProfit": "6.33%",
-  "avgProfit": "1.58%",
-  "totalRecords": 8,
-  "lastUpdated": 1774981155025,
-  "lastUpdatedDate": "2026-03-31T18:19:15.025Z",
-  "uptime": 1290.10476077
+  "totalSignals": 3,
+  "activeSignals": 1,
+  "closedSignals": 6,
+  "wins": 1,
+  "losses": 5,
+  "winRate": "16.7%",
+  "totalProfit": "-1.94%",
+  "avgProfit": "-0.32%",
+  "totalRecords": 13,
+  "lastUpdated": 1775922258685,
+  "lastUpdatedDate": "2026-04-11T15:44:18.685Z",
+  "uptime": 60.153376113
 }
